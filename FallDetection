@@ -1,70 +1,110 @@
-// these constants describe the pins. They won't change:
-const int xpin = A0;                  // x-axis of the accelerometer
-const int ypin = A1;                  // y-axis
-const int zpin = A2;                  // z-axis (only on 3-axis models)
-int ledPin = 6;
-const int piezo = 9;
-int xa = 0;
-int ya = 0;
-int za = 0;
+#define CUSTOM_SETTINGS
+#define INCLUDE_EMAIL_SHIELD
+#define INCLUDE_ACCELEROMETER_SENSOR_SHIELD
+#define INCLUDE_TOGGLE_BUTTON_SHIELD
+#define INCLUDE_GPS_SHIELD
+#define INCLUDE_NOTIFICATION_SHIELD
+#define INCLUDE_ORIENTATION_SENSOR_SHIELD
+#define INCLUDE_TWITTER_SHIELD 
+#define INCLUDE_SMS_SHIELD
 
-int sampleDelay = 100;   //number of milliseconds between readings
 
-void setup()
-{
-  // initialize the serial communications:
-  Serial.begin(9600);
-  Serial.println("Starting up");
-  tone(piezo, 2000, 500);
-  //Make sure the analog-to-digital converter takes its reference voltage from
-  // the AREF pin
-  analogReference(EXTERNAL);
-
-  pinMode(xpin, INPUT);
-  pinMode(ypin, INPUT);
-  pinMode(zpin, INPUT);
-}
-
-void loop()
-{
-  int x = analogRead(xpin);
-
-  //add a small delay between pin readings.  I read that you should
-  //do this but haven't tested the importance
-    delay(1); 
-
-  int y = analogRead(ypin);
-
-  //add a small delay between pin readings.  I read that you should
-  //do this but haven't tested the importance
-    delay(1); 
-
-  int z = analogRead(zpin);
-
+#include <OneSheeld.h>
+ 
+boolean stopGettingReadings = false;
+ 
+unsigned long lastTimeTaken = 0;
+unsigned long currentTime = 0;
   //zero_G is the reading we expect from the sensor when it detects
   //no acceleration.  Subtract this value from the sensor reading to
   //get a shifted sensor reading.
-  float zero_G = 512.0; 
-
-  //scale is the number of units we expect the sensor reading to
-  //change when the acceleration along an axis changes by 1G.
-  //Divide the shifted sensor reading by scale to get acceleration in Gs.
-  float scale = 102.3;
-  
-  xa = ((float)x - zero_G)/scale; // calculates x acceleration
-  ya =((float)y - zero_G)/scale; // calculates y acceleration 
-  za = ((float)z - zero_G)/scale; // calculates z acceleration
-  
-  Serial.print(((float)x - zero_G)/scale);
-  Serial.print("\t");  Serial.print(((float)y - zero_G)/scale);
-  Serial.print("\t");  Serial.print(((float)z - zero_G)/scale);
-  Serial.print("\n");  // delay before next reading:
-  delay(sampleDelay);
-if (sqrt(sq(xa) + sq(ya) + sq(za)) > 2.5) { 
-digitalWrite(ledPin, HIGH);
-tone(piezo, 4000, 1500);
-Serial.print("Fall");
-delay(3000); //this code keeps LED on for 3 seconds just for interaction purposes
+ int scale = 9.81; 
+ 
+float x, y, z;
+float lat ;
+float lon ;
+char charlat [30];
+char charlon [30];
+char readings [100];
+int magnitudeThreshold = 2.3;
+int xa = 0;
+int ya = 0;
+int za = 0;
+ 
+void setup() {
+  // put your setup code here, to run once:
+  OneSheeld.begin();
 }
-else digitalWrite(ledPin, LOW);
+ 
+void loop() {
+
+
+  // put your main code here, to run repeatedly:
+  if(!stopGettingReadings)
+  {
+    x = AccelerometerSensor.getX();
+    y = AccelerometerSensor.getY();
+    z = AccelerometerSensor.getZ();  
+  }
+  xa = x/scale; // calculates x acceleration
+  ya = y/scale; // calculates y acceleration 
+  za = z/scale; // calculates z acceleration
+  if (sqrt(sq(xa) + sq(ya) + sq(za)) > magnitudeThreshold && (abs(OrientationSensor.getY()) < 45))
+  {
+    Notification.notifyPhone("detected fall | 10 seconds to cancel");
+       /* Wait for 300 ms. */
+      /* Stop reading the accelerometer values to keep looping on. */
+      stopGettingReadings = true;
+      /* Take the time once the accident happens only. */
+      if(!lastTimeTaken)  
+      {
+        lastTimeTaken = millis();
+        currentTime = lastTimeTaken;
+      }
+      /* Loop on time and if time exceeds 10 seconds and no one pressed the toggle button in ToggleShield send the messages and Restart the System. */ 
+      if(currentTime - lastTimeTaken > 10000 && !ToggleButton.getStatus())
+      {
+        lat = GPS.getLatitude();
+        lon = GPS.getLongitude();
+        dtostrf(lat, 3, 6, charlat);
+        dtostrf(lon, 3, 6, charlon);
+        strcat(readings, "I fell. pick me up from: ");
+        strcat(readings, "http://maps.google.com/maps?q=");
+        strcat (readings, charlat);
+        strcat(readings, ",");
+        strcat (readings, charlon);
+        Notification.notifyPhone("You Fall MA DuDE?");
+        delay(10);
+        Phone.call("6179914637");
+        delay(300);
+      /* Wait for 300 ms. */
+        Email.send("samer.neergaard@gmail.com", "I Fell, Again.", readings);
+        delay(10);
+        SMS.send("6179914637", readings);
+        //String name = "@tyler_hayman97";
+//String message = readings;
+//Twitter.sendMessage(name,message);
+        //Facebook.post(readings);
+        resetSystem();
+      }
+      else
+      
+      {
+        /* Check on the button if pressed Restart the whole System.*/
+        if(ToggleButton.getStatus()) 
+        {
+          resetSystem();
+          //Terminal.println("ButtonPressed");    //This line is just for debuggint
+        }
+        else currentTime = millis();   /* Keep Getting time to check on it.*/
+      }
+  }
+}
+ 
+/* Restart Function. */
+void resetSystem()
+{
+  stopGettingReadings = false;
+  lastTimeTaken = 0;
+  currentTime = 0;
 }
